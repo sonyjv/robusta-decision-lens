@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robusta Decision Lens</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  Published at: https://claude.ai/code/artifact/1b0a5087-c58d-4b1a-be49-4ea43b12366c
+  The coffee-pipeline Skill republishes THIS file to that same URL on every
+  escalation day, and writes the day's data via Artifact write_db into the
+  "snapshots" collection (doc id = report_date): the signal table, brief, and
+  `payload` = the output of `python -m coffee_lens.dashboard_payload`
+  (Rs-per-55-kg-bag series, per-mandi prices, signals with source links).
+  See SKILL.md Step 2.
+-->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #F6F3EC;
+    --card: #FFFFFF;
+    --border: #D9D3C4;
+    --grid: #E4DECE;
+    --axis: #8F8A7C;
+    --ink: #1B1B18;
+    --muted: #5E5B52;
+    --mandi: #2F6DB5;
+    --board: #B8741A;
+    --london: #12907F;
+    --link: #1F5A9E;
+    --up: #1F7A3D;
+    --down: #B3261E;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+  .num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-block: 32px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 24px; }
+  h1, h2 { font-family: Fraunces, serif; font-weight: 600; margin: 0; }
+  h1 { font-size: 34px; line-height: 1.05; }
+  h2 { font-size: 20px; }
+  .muted { color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
+
+  header.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+  header .sub { font-size: 13px; color: var(--muted); }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill { font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-family: 'IBM Plex Mono', monospace; }
+  .pill.escalated { color: var(--ink); border-color: var(--ink); }
+
+  .tiles { display: flex; flex-wrap: wrap; gap: 12px; }
+  .tile { flex: 1 1 280px; padding: 16px 18px; }
+  .tile .l { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .tile .l i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .tile .v { font-size: 30px; font-weight: 500; margin: 6px 0 2px; }
+  .tile .s { font-size: 12px; color: var(--muted); }
+
+  .chart-card { overflow: hidden; }
+  .card, .two > .card, .tile { min-width: 0; }
+  .chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 20px 24px 4px; }
+  .chart-head .t { font-family: Fraunces, serif; font-size: 22px; font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted); align-items: center; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .legend i { width: 16px; height: 2px; display: inline-block; }
+  .plot { position: relative; width: 100%; aspect-ratio: 830 / 290; cursor: crosshair; touch-action: pan-y; }
+  .plot svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .plot .ov { position: absolute; font-size: 14px; line-height: 1; pointer-events: none; white-space: nowrap; }
+  .plot .ylab { left: 92.8%; transform: translateY(-50%); }
+  .plot .xlab { transform: translateX(-50%); }
+  .plot .tag { background: var(--ink); color: #fff; font-size: 13px; padding: 5px 8px; }
+  .plot .tip { position: absolute; top: 14%; background: #fff; border: 1px solid var(--axis); border-radius: 4px; padding: 8px 12px; min-width: 190px; box-shadow: 0 2px 8px rgba(27,27,24,.12); pointer-events: none; }
+  .plot .tip .d { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .plot .tip .r { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; line-height: 1.7; }
+  .ranges { display: flex; flex-wrap: wrap; gap: 4px 8px; background: #F4F1EA; border-top: 1px solid var(--border); padding: 0 20px; }
+  .ranges button { font-family: inherit; font-size: 17px; padding: 14px 10px 11px; border: none; border-bottom: 3px solid transparent; background: transparent; color: var(--ink); cursor: pointer; min-height: 44px; }
+  .ranges button.on { border-bottom-color: var(--mandi); }
+  .ranges button:disabled { color: var(--axis); cursor: not-allowed; }
+  .chart-note { font-size: 12px; color: var(--muted); padding: 8px 24px 14px; }
+
+  .two { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .two > .card { flex: 1 1 440px; padding: 18px 20px; }
+  .two h2 { margin-bottom: 14px; }
+  .mandi-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .mandi-row .n { flex: 0 0 130px; font-size: 13px; }
+  .mandi-row .bar { flex: 1 1 160px; height: 12px; background: #EEE9DC; border-radius: 2px; }
+  .mandi-row .bar b { display: block; height: 12px; background: var(--mandi); border-radius: 2px 4px 4px 2px; }
+  .mandi-row .p { flex: 0 0 96px; text-align: right; font-size: 13px; }
+  .scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin: 6px 108px 0 142px; }
+  .small { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .sig { display: flex; gap: 10px; align-items: baseline; font-size: 13px; line-height: 1.4; margin-bottom: 12px; }
+  .sig .chip { flex: 0 0 96px; font-size: 12px; }
+  .sig a { color: var(--link); text-underline-offset: 2px; }
+
+  .brief-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+  .brief-meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .badge { font-size: 11px; border: 1px solid var(--axis); border-radius: 3px; padding: 2px 6px; letter-spacing: .03em; text-transform: uppercase; }
+  .badge.warn { border-color: var(--board); color: #7A4A0C; }
+  .brief-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .brief-grid > div { min-width: 0; }
+  .change { padding: 14px 16px; }
+  .change .region { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .change .hl { font-weight: 600; margin: 4px 0 4px; font-size: 14px; line-height: 1.35; }
+  .change .dt { font-size: 13px; color: var(--muted); line-height: 1.45; }
+  .change a, .brief-sub a { color: var(--link); font-size: 12px; text-underline-offset: 2px; }
+  .brief-sub { margin-top: 16px; }
+  .brief-sub h3 { font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  .brief-sub ul { margin: 0; padding-left: 1.2em; font-size: 13px; line-height: 1.5; }
+  .legs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .leg { padding: 12px 14px; }
+  .leg .st { font-size: 12px; font-weight: 600; }
+  .leg .st.ready { color: var(--up); }
+  .leg .st.blocked { color: #7A4A0C; }
+  .leg .nm { font-weight: 600; font-size: 14px; margin: 2px 0; }
+  .leg .why { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .brief-empty { font-size: 13px; color: var(--muted); padding: 14px 16px; }
+  details.old { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  details.old .oldbody { margin-top: 8px; max-width: 68ch; color: var(--ink); }
+  details.old h2 { font-size: 16px; margin: 12px 0 6px; }
+  details.old p { margin: 0 0 8px; }
+
+  footer { font-size: 12px; color: var(--muted); max-width: 90ch; }
+  footer div { margin-bottom: 6px; }
+  @media (max-width: 560px) { .plot .ov, .plot .tag { font-size: 10px; } .ranges button { font-size: 14px; padding: 12px 6px 9px; } }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Robusta Decision Lens</h1>
+      <div class="sub">Wayanad dried cherry · Rs per 55 kg bag · state of market, not a forecast</div>
+    </div>
+    <div class="pills" id="status-row"></div>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card chart-card" id="chart-card">
+    <div class="chart-head">
+      <div>
+        <div class="t">Indian price vs London, same axis</div>
+        <div class="sub muted" style="font-size:13px;margin-top:2px">Hover or touch the chart to read a day.</div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--mandi)"></i>Wayanad mandi</span>
+        <span><i style="background:var(--board)"></i>Board cherry</span>
+        <span><i style="background:var(--london)"></i>London parity</span>
+      </div>
+    </div>
+    <div class="plot" id="plot"></div>
+    <div class="ranges" id="ranges" role="group" aria-label="Date range"></div>
+    <div class="chart-note" id="chart-note"></div>
+  </section>
+
+  <section class="two">
+    <div class="card"><h2>Mandis, latest print</h2><div id="mandis"></div></div>
+    <div class="card"><h2>Drivers</h2><div id="signals"></div></div>
+  </section>
+
+  <section>
+    <div class="brief-head">
+      <h2>This week's context</h2>
+      <div class="brief-meta" id="brief-meta"></div>
+    </div>
+    <div id="brief"></div>
+  </section>
+
+  <footer>
+    <div>London parity assumes dried-cherry-to-green outturn of <span id="outturn">0.50</span> and is a reference line, not an offer; ICE US arabica (KC) is a different crop and is not shown. Sources: AgMarkNet via acrop.app (mandis), Coffee Board daily report (Board cherry, London futures, USD/INR), plus each driver's linked source. ICE Futures Europe CoT is a known gap.</div>
+    <div id="last-updated"></div>
+  </footer>
+</div>
+
+<script>window.__SNAPSHOTS__ = [{"report_date": "2026-10-25", "robusta_m1_usd_t": 3352.0, "escalated": false, "signal_table": [{"channel": "london_curve", "stance": "bullish", "reason": "contango: M2 (3364.0) > M1 (3352.0) — market pays to wait"}, {"channel": "london_range", "stance": "insufficient_data", "reason": "only 2 reports so far"}, {"channel": "ice_stocks", "stance": "insufficient_data", "reason": "fewer than 2 certstocks readings yet"}, {"channel": "india_production", "stance": "bearish", "reason": "Coffee Board post-blossom estimate (via IBEF): India robusta 2.62->2.84 lakh tonnes (+8.4%). CONFLICTS with the USDA FAS figure cited in the original research (~-4% for the same season) — treat as contested, not settled."}, {"channel": "wayanad_rainfall", "stance": "neutral", "reason": "IMD: Wayanad rainfall excess (51.0% vs normal) — effect on robusta is ambiguous (can help yield, can hurt drying/quality), not scored directionally"}, {"channel": "enso_risk", "stance": "bullish", "reason": "NOAA: El Niño Advisory (8 October 2026) — El Niño is a bullish TAIL risk per the original research (Vietnam/Brazil flowering, India monsoon), timing uncertain, not a near-term call"}, {"channel": "brazil_conillon_exports", "stance": "bullish", "reason": "Brazil Conillon (robusta) exports falling month-over-month (962,607->813,904 bags)"}, {"channel": "vietnam_exports", "stance": "bullish", "reason": "Vietnam coffee exports falling month-over-month (129,849->122,727 tons) — mostly robusta"}, {"channel": "local_basis", "stance": "insufficient_data", "reason": "only 0/8 trader quotes logged — basis vs. Board price is not calibrated yet, not reported as a number"}], "payload": {"generated": "2026-10-25", "local_bag_kg": 55.0, "board_bag_kg": 50.0, "outturn": 0.5, "latest_usd_t": 3352.0, "latest_usd_inr": 94.4, "latest_board_cherry_50kg": [9800.0, 10600.0], "mandi_latest_date": "2026-10-24", "series": {"mandi": [["2026-09-27", 11495.0], ["2026-09-28", 11412.5], ["2026-09-29", 11522.5], ["2026-09-30", 11605.0], ["2026-10-01", 11605.0], ["2026-10-03", 11632.5], ["2026-10-05", 11687.5], ["2026-10-06", 11687.5], ["2026-10-07", 11715.0], ["2026-10-08", 11632.5], ["2026-10-09", 11660.0], ["2026-10-10", 11660.0], ["2026-10-12", 11660.0], ["2026-10-13", 11715.0], ["2026-10-14", 11715.0], ["2026-10-15", 11660.0], ["2026-10-16", 11660.0], ["2026-10-17", 11687.5], ["2026-10-19", 11715.0], ["2026-10-20", 11577.5], ["2026-10-21", 11687.5], ["2026-10-22", 11715.0], ["2026-10-24", 11673.75]], "board": [["2026-10-16", 11330.0], ["2026-10-22", 11220.0]], "london": [["2026-10-16", 8794.91], ["2026-10-22", 8701.79]]}, "mandis": [{"name": "Sultan Bathery APMC", "rs_per_bag": 11715.0}, {"name": "Manathavady APMC", "rs_per_bag": 11687.5}, {"name": "Kalpetta APMC", "rs_per_bag": 11660.0}, {"name": "Pulpally APMC", "rs_per_bag": 11495.0}], "signals": [{"channel": "london_curve", "stance": "bullish", "reason": "contango: M2 (3364.0) > M1 (3352.0) — market pays to wait", "source": "Coffee Board daily report", "href": "https://coffeeboard.gov.in/Market_Info.aspx"}, {"channel": "london_range", "stance": "insufficient_data", "reason": "only 2 reports so far", "source": "Coffee Board daily report", "href": "https://coffeeboard.gov.in/Market_Info.aspx"}, {"channel": "ice_stocks", "stance": "insufficient_data", "reason": "fewer than 2 certstocks readings yet", "source": "ICO data portal", "href": "https://data.ico.org"}, {"channel": "india_production", "stance": "bearish", "reason": "Coffee Board post-blossom estimate (via IBEF): India robusta 2.62->2.84 lakh tonnes (+8.4%). CONFLICTS with the USDA FAS figure cited in the original research (~-4% for the same season) — treat as contested, not settled.", "source": "IBEF coffee overview", "href": "https://www.ibef.org/exports/coffee-industry-in-india"}, {"channel": "wayanad_rainfall", "stance": "neutral", "reason": "IMD: Wayanad rainfall excess (51.0% vs normal) — effect on robusta is ambiguous (can help yield, can hurt drying/quality), not scored directionally", "source": "IMD Thiruvananthapuram rainfall", "href": "https://mausam.imd.gov.in/thiruvananthapuram/mcdata/SEASONSRAINFALL.pdf"}, {"channel": "enso_risk", "stance": "bullish", "reason": "NOAA: El Niño Advisory (8 October 2026) — El Niño is a bullish TAIL risk per the original research (Vietnam/Brazil flowering, India monsoon), timing uncertain, not a near-term call", "source": "NOAA CPC ENSO discussion", "href": "https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/enso_advisory/ensodisc.shtml"}, {"channel": "brazil_conillon_exports", "stance": "bullish", "reason": "Brazil Conillon (robusta) exports falling month-over-month (962,607->813,904 bags)", "source": "CECAFE export data", "href": "https://www.cecafe.com.br/site/wp-content/uploads/graficos/CECAFE-ExportacaoMensal_TipoCafe.pdf"}, {"channel": "vietnam_exports", "stance": "bullish", "reason": "Vietnam coffee exports falling month-over-month (129,849->122,727 tons) — mostly robusta", "source": "Vietnam NSO statistics", "href": "https://www.nso.gov.vn/en/data-and-statistics/"}, {"channel": "local_basis", "stance": "insufficient_data", "reason": "only 0/8 trader quotes logged — basis vs. Board price is not calibrated yet, not reported as a number", "source": "Wayanad mandi prices", "href": "https://acrop.app/prices/coffee/kerala/wayanad"}]}, "brief": {"changes": [{"region": "Vietnam", "headline": "Harvest starting in Dak Lak", "detail": "Main picking runs Oct to Jan with output roughly flat; heavy highland rain at peak harvest is the risk.", "source_url": ""}, {"region": "Brazil", "headline": "Espirito Santo dry through flowering", "detail": "StoneX sees Espirito Santo robusta down about 4% to 17M bags, while the total Brazil crop is still projected near a record 71.9M bags.", "source_url": ""}, {"region": "ICO", "headline": "September robusta average down 7.3%", "detail": "It averaged 167.49 US cents per lb as Brazil's record harvest reached the market; robusta exports are up sharply year on year.", "source_url": ""}], "disagreements": ["India crop: Coffee Board says +8.4%, USDA says about -4% for the same season.", "Vietnam and Brazil weather point in opposite directions for robusta.", "London certified stocks are at a 10-month high (ICO) while our own stocks signal has too little history."], "tranche_legs": [{"leg": "Cost plus target margin", "status": "blocked", "why": "Needs 8 logged trader quotes; 0 so far."}, {"leg": "Strength above the 12-month London average", "status": "blocked", "why": "Only 2 days of London history so far."}, {"leg": "Fixed deadline", "status": "ready", "why": "Date-based, so data gaps do not affect it."}]}, "brief_date": "2026-10-25", "is_dry_run": true}];
+(async function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = (v) => Math.round(v).toLocaleString('en-IN');
+  const rs = (v) => 'Rs ' + num(v);
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dayNo = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86400000;
+  const dateOf = (d) => new Date(d * 86400000);
+  const short = (d) => dateOf(d).getUTCDate() + ' ' + MON[dateOf(d).getUTCMonth()];
+  const long = (d) => WD[dateOf(d).getUTCDay()] + ' ' + short(d) + ' ' + dateOf(d).getUTCFullYear();
+
+  function renderBriefMarkdown(md) {
+    if (!md || !md.trim()) return '<p class="empty">No brief yet — the next one lands on the scheduled weekly day, or sooner if a signal moves materially. Quiet days run entirely in code, at no cost.</p>';
+    let html = '', inList = false;
+    const close = () => { if (inList) { html += '</ul>'; inList = false; } };
+    for (const raw of md.split('\n')) {
+      const line = raw.trim();
+      if (!line) { close(); continue; }
+      if (line.startsWith('## ')) { close(); html += `<h2>${esc(line.slice(3))}</h2>`; continue; }
+      if (line.startsWith('# ')) { close(); html += `<h2>${esc(line.slice(2))}</h2>`; continue; }
+      if (line.startsWith('- ') || line.startsWith('* ')) {
+        if (!inList) { html += '<ul>'; inList = true; }
+        html += `<li>${esc(line.slice(2)).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</li>`;
+        continue;
+      }
+      close();
+      html += `<p>${esc(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`;
+    }
+    close();
+    return html;
+  }
+
+  const safeHref = (u) => (u && /^https:\/\//.test(u) ? u : '');
+  function briefAge(iso) {
+    const d = Math.floor((Date.now() - dayNo(iso) * 86400000) / 86400000);
+    return d <= 0 ? 'today' : d === 1 ? '1 day ago' : d + ' days ago';
+  }
+  function renderBrief(doc) {
+    const meta = $('brief-meta');
+    if (!doc) {
+      meta.innerHTML = '';
+      return '<div class="card brief-empty">No weekly context yet. One is written on the weekly brief day, or sooner when a signal moves materially. Quiet days run in code only.</div>';
+    }
+    const iso = doc.brief_date || doc.report_date;
+    const days = Math.floor((Date.now() - dayNo(iso) * 86400000) / 86400000);
+    meta.innerHTML = `<span>From ${esc(short(dayNo(iso)))} (${esc(briefAge(iso))})</span>`
+      + (doc.is_dry_run ? '<span class="badge">Dry run</span>' : '')
+      + (days > 8 ? '<span class="badge warn">Older than a week</span>' : '');
+    const b = doc.brief;
+    if (!b) {
+      return `<div class="card brief-empty">This context was written in an older format.<details class="old"><summary>Show it</summary><div class="oldbody">${renderBriefMarkdown(doc.brief_markdown)}</div></details></div>`;
+    }
+    let html = '';
+    if (b.changes && b.changes.length) {
+      html += '<div class="brief-grid">' + b.changes.map((c) => {
+        const href = safeHref(c.source_url);
+        return `<div class="card change"><div class="region">${esc(c.region)}</div><div class="hl">${esc(c.headline)}</div><div class="dt">${esc(c.detail)}</div>${href ? `<div style="margin-top:8px"><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">Source ↗</a></div>` : ''}</div>`;
+      }).join('') + '</div>';
+    }
+    if (b.disagreements && b.disagreements.length) {
+      html += `<div class="brief-sub"><h3>Where the evidence disagrees</h3><ul>${b.disagreements.map((d) => `<li>${esc(d)}</li>`).join('')}</ul></div>`;
+    }
+    if (b.tranche_legs && b.tranche_legs.length) {
+      html += `<div class="brief-sub"><h3>Tranche rule at a glance</h3><div class="legs">${b.tranche_legs.map((l) => `<div class="card leg"><div class="st ${l.status === 'ready' ? 'ready' : 'blocked'}">${l.status === 'ready' ? '✓ Ready' : '⏸ Blocked'}</div><div class="nm">${esc(l.leg)}</div><div class="why">${esc(l.why)}</div></div>`).join('')}</div></div>`;
+    }
+    return html || '<div class="card brief-empty">The latest context had nothing new to report.</div>';
+  }
+
+  const CHIP = { bullish: '▲ bullish', bearish: '▼ bearish', neutral: '● neutral', insufficient_data: '○ no data' };
+  const NAMES = { london_curve: 'Curve', london_range: 'London range', ice_stocks: 'ICE stocks', india_production: 'India crop', wayanad_rainfall: 'Wayanad rain', enso_risk: 'El Niño', brazil_conillon_exports: 'Brazil Conillon', vietnam_exports: 'Vietnam', local_basis: 'Local basis' };
+  function renderSignals(signals) {
+    if (!signals || !signals.length) return '<p class="muted">No signals computed yet.</p>';
+    return signals.map((s) => {
+      const link = s.href && /^https:\/\//.test(s.href) ? ` <a href="${esc(s.href)}" target="_blank" rel="noopener noreferrer">${esc(s.source || 'Source')} ↗</a>` : '';
+      return `<div class="sig"><span class="chip num">${esc(CHIP[s.stance] || s.stance)}</span><span><b style="font-weight:500">${esc(NAMES[s.channel] || s.channel.replace(/_/g, ' '))}</b> <span class="muted">${esc(s.reason)}</span>${link}</span></div>`;
+    }).join('');
+  }
+
+  function renderMandis(mandis) {
+    if (!mandis || !mandis.length) return '<p class="muted">No mandi prices yet.</p>';
+    const vals = mandis.map((m) => m.rs_per_bag);
+    const step = 100;
+    const lo = Math.floor((Math.min(...vals) - 100) / step) * step;
+    const hi = Math.ceil((Math.max(...vals) + 50) / step) * step;
+    const rows = mandis.map((m) => `<div class="mandi-row"><div class="n">${esc(m.name)}</div><div class="bar"><b style="width:${((m.rs_per_bag - lo) / (hi - lo) * 100).toFixed(1)}%"></b></div><div class="p num">${rs(m.rs_per_bag)}</div></div>`).join('');
+    return rows + `<div class="scale num"><span>${rs(lo)}</span><span>${rs(hi)}</span></div><div class="small">Bar axis runs from ${rs(lo)} to ${rs(hi)} per bag, not from zero, to show the spread.</div>`;
+  }
+
+  function renderTiles(p) {
+    const m = p.series.mandi, b = p.series.board, l = p.series.london;
+    const last = (a) => (a.length ? a[a.length - 1][1] : null);
+    const lo50 = p.latest_board_cherry_50kg && p.latest_board_cherry_50kg[0], hi50 = p.latest_board_cherry_50kg && p.latest_board_cherry_50kg[1];
+    const tiles = [
+      { c: 'var(--mandi)', l: 'Wayanad mandi median', v: last(m), s: last(m) ? `Rs ${(last(m) / p.local_bag_kg).toFixed(2)} / kg · ${(p.mandis || []).length} mandis` : '' },
+      { c: 'var(--board)', l: 'Board cherry (mid)', v: last(b), s: lo50 ? `Rescaled from Rs ${num((lo50 + hi50) / 2)} per ${p.board_bag_kg} kg` : '' },
+      { c: 'var(--london)', l: 'London parity (est.)', v: last(l), s: p.latest_usd_t ? `$${num(p.latest_usd_t)}/t at Rs ${p.latest_usd_inr}` : '' },
+    ];
+    return tiles.map((t) => `<div class="card tile"><div class="l"><i style="background:${t.c}"></i>${esc(t.l)}</div><div class="v num">${t.v ? rs(t.v) : '—'}</div><div class="s">${esc(t.s)}</div></div>`).join('');
+  }
+
+  // ---- interactive chart -------------------------------------------------
+  function initChart(p) {
+    const W = 830, H = 290, PL = 20, PR = 760, PT = 36, PB = 236;
+    const xTop = ((PB + 12) / H * 100).toFixed(2) + '%';
+    const S = {};
+    for (const k of ['mandi', 'board', 'london']) S[k] = (p.series[k] || []).map((r) => [dayNo(r[0]), r[1]]);
+    if (!S.mandi.length) { $('plot').innerHTML = '<p class="muted" style="padding:24px">Price history appears here once the mandi channel has run.</p>'; $('ranges').style.display = 'none'; return; }
+    const LAST = S.mandi[S.mandi.length - 1][0], FIRST = S.mandi[0][0], SPAN = LAST - FIRST;
+    const RANGES = [['1W', 7], ['2W', 14], ['1M', 30], ['6M', 182], ['1Y', 365], ['5Y', 1825], ['All', null]];
+    const enabled = (days) => days === null ? SPAN > 35 : SPAN >= days * 0.8;
+    let range = (RANGES.filter((r) => r[1] && enabled(r[1]) && r[1] <= 30).pop() || ['All', null])[1];
+    let hover = null;
+
+    function draw() {
+      const first = range === null ? FIRST : Math.max(FIRST, LAST - range);
+      const span = Math.max(LAST - first, 1);
+      const inWin = (pts) => pts.filter((q) => q[0] >= first);
+      const vis = inWin(S.mandi).concat(inWin(S.board), inWin(S.london)).map((q) => q[1]);
+      const vmin = Math.min(...vis), vmax = Math.max(...vis);
+      const stepY = [50, 100, 250, 500, 1000, 2500, 5000].find((st) => (vmax - vmin) / st <= 8) || 5000;
+      const LO = Math.floor((vmin - (vmax - vmin) * 0.06) / stepY) * stepY;
+      const HI = Math.ceil((vmax + (vmax - vmin) * 0.08) / stepY) * stepY;
+      const X = (d) => PL + (d - first) / span * (PR - PL);
+      const Y = (v) => PT + (HI - v) / (HI - LO) * (PB - PT);
+      const path = (pts) => inWin(pts).map((q, i) => (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1)).join(' ');
+
+      // x ticks: day ticks for short windows, month starts for long ones
+      let xt = [];
+      if (span <= 45) {
+        const st = Math.max(1, Math.ceil(64 / ((PR - PL) / span)));
+        for (let d = first; d <= LAST; d++) { const dom = dateOf(d).getUTCDate(); if (st === 1 || dom === 1 || dom % st === 1) xt.push([d, dom === 1 ? MON[dateOf(d).getUTCMonth()] : String(dom)]); }
+      } else {
+        const everyM = Math.max(1, Math.ceil(64 / ((PR - PL) / span * 30.4)));
+        let c = dateOf(first); let m = c.getUTCFullYear() * 12 + c.getUTCMonth() + (c.getUTCDate() === 1 ? 0 : 1);
+        for (; ; m += everyM) { const d = Date.UTC(Math.floor(m / 12), m % 12, 1) / 86400000; if (d > LAST) break; xt.push([d, MON[m % 12] + (m % 12 === 0 || xt.length === 0 ? ' ' + Math.floor(m / 12) : '')]); }
+      }
+      const yt = [];
+      for (let v = Math.ceil(LO / stepY) * stepY; v <= HI; v += stepY) yt.push(v);
+
+      let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Price in rupees per ${p.local_bag_kg} kg bag against date for the Wayanad mandi, Coffee Board cherry and London parity.">`;
+      xt.forEach((t) => { svg += `<line x1="${X(t[0])}" x2="${X(t[0])}" y1="0" y2="${PB}" stroke="var(--grid)"/><line x1="${X(t[0])}" x2="${X(t[0])}" y1="${PB}" y2="${PB + 6}" stroke="var(--axis)"/>`; });
+      yt.forEach((v) => { svg += `<line x1="${PL}" x2="${PR}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/>`; });
+      svg += `<line x1="${PL}" x2="${PR}" y1="${PB}" y2="${PB}" stroke="var(--axis)"/><line x1="${PR}" x2="${PR}" y1="0" y2="${PB}" stroke="var(--axis)"/>`;
+      svg += `<path d="${path(S.london)}" fill="none" stroke="var(--london)" stroke-width="2"/><path d="${path(S.board)}" fill="none" stroke="var(--board)" stroke-width="2"/><path d="${path(S.mandi)}" fill="none" stroke="var(--mandi)" stroke-width="2" stroke-linejoin="round"/>`;
+      const dot = (q, r, c) => `<circle cx="${X(q[0])}" cy="${Y(q[1])}" r="${r}" fill="${c}" stroke="#fff" stroke-width="1.5"/>`;
+      if (span <= 16) inWin(S.mandi).forEach((q) => { svg += dot(q, 3, 'var(--mandi)'); });
+      inWin(S.board).forEach((q) => { svg += dot(q, 3.5, 'var(--board)'); });
+      inWin(S.london).forEach((q) => { svg += dot(q, 3.5, 'var(--london)'); });
+      const mLast = S.mandi[S.mandi.length - 1][1];
+      svg += `<line x1="${PL}" x2="${PR}" y1="${Y(mLast)}" y2="${Y(mLast)}" stroke="var(--mandi)" stroke-dasharray="1.5 2.5"/>`;
+
+      let hv = '';
+      if (hover !== null) {
+        const pts = inWin(S.mandi);
+        const h = pts.reduce((a, q) => Math.abs(q[0] - hover) < Math.abs(a[0] - hover) ? q : a, pts[0]);
+        const hx = X(h[0]), hy = Y(h[1]);
+        const get = (arr) => { const f = arr.find((q) => q[0] === h[0]); return f ? rs(f[1]) : 'no reading'; };
+        svg += `<line x1="${hx}" x2="${hx}" y1="0" y2="${PB}" stroke="var(--ink)" stroke-dasharray="3 3"/><line x1="${PL}" x2="${PR}" y1="${hy}" y2="${hy}" stroke="var(--ink)" stroke-dasharray="3 3"/><circle cx="${hx}" cy="${hy}" r="5" fill="var(--mandi)" stroke="#fff" stroke-width="2"/>`;
+        hv = `<div class="ov tag num xlab" style="top:${xTop};left:${(hx / W * 100).toFixed(2)}%">${esc(short(h[0]))}</div>`
+          + `<div class="ov tag num ylab" style="top:${(hy / H * 100).toFixed(2)}%">${num(h[1])}</div>`
+          + `<div class="tip" style="left:${(((hx > 520 ? hx - 214 : hx + 14)) / W * 100).toFixed(2)}%"><div class="d">${esc(long(h[0]))}</div>`
+          + `<div class="r"><span class="muted">Wayanad mandi</span><span class="num">${rs(h[1])}</span></div>`
+          + `<div class="r"><span class="muted">Board cherry</span><span class="num">${get(S.board)}</span></div>`
+          + `<div class="r"><span class="muted">London parity</span><span class="num">${get(S.london)}</span></div></div>`;
+      }
+      svg += '</svg>';
+
+      const m0 = inWin(S.mandi)[0][1], chg = mLast - m0, pct = chg / m0 * 100, sg = chg >= 0 ? '+' : '−';
+      const rl = (RANGES.find((r) => r[1] === range) || ['All'])[0];
+      const head = `<div class="ov" style="left:3%;top:3%">Wayanad mandi (Rs per ${p.local_bag_kg} kg bag) <b class="num" style="color:var(--mandi);font-weight:600">${num(mLast)}</b> <span class="num" style="color:${chg >= 0 ? 'var(--up)' : 'var(--down)'};font-weight:500">${sg}${num(Math.abs(chg))} (${sg}${Math.abs(pct).toFixed(2)}%)</span> ${esc(rl)}</div>`;
+      const ylabs = yt.map((v) => `<div class="ov ylab num" style="top:${(Y(v) / H * 100).toFixed(2)}%">${num(v)}</div>`).join('');
+      const xlabs = xt.map((t) => `<div class="ov xlab num" style="top:${xTop};left:${(X(t[0]) / W * 100).toFixed(2)}%">${esc(t[1])}</div>`).join('');
+      $('plot').innerHTML = svg + head + ylabs + xlabs + hv;
+
+      $('ranges').innerHTML = RANGES.map((r) => {
+        const ok = enabled(r[1]);
+        return `<button type="button" data-r="${r[1] === null ? 'all' : r[1]}" class="${ok && r[1] === range ? 'on' : ''}" aria-pressed="${ok && r[1] === range}" ${ok ? '' : 'disabled title="Needs more history"'}>${r[0]}</button>`;
+      }).join('');
+    }
+
+    $('ranges').onclick = (e) => {
+      const b = e.target.closest('button'); if (!b || b.disabled) return;
+      range = b.dataset.r === 'all' ? null : Number(b.dataset.r); hover = null; draw();
+    };
+    const locate = (e) => {
+      const pt = (e.touches && e.touches[0]) || e;
+      const r = $('plot').getBoundingClientRect();
+      const vx = (pt.clientX - r.left) / r.width * W;
+      if (vx < PL || vx > PR) return null;
+      const first = range === null ? FIRST : Math.max(FIRST, LAST - range);
+      return first + (vx - PL) / (PR - PL) * Math.max(LAST - first, 1);
+    };
+    const move = (e) => { const d = locate(e); if (d !== hover) { hover = d; draw(); } };
+    $('plot').addEventListener('mousemove', move);
+    $('plot').addEventListener('touchmove', move, { passive: true });
+    $('plot').addEventListener('mouseleave', () => { hover = null; draw(); });
+    draw();
+
+    const nb = (p.series.board || []).length, nl = (p.series.london || []).length;
+    $('chart-note').textContent = `Price axis on the right, fitted to the visible data, not zero; every gridline carries its own label. Board has ${nb} and London ${nl} reading${nl === 1 ? '' : 's'} so far (one per Board report); the mandi has no print on some days. Longer ranges unlock as the daily runs build history.`;
+  }
+
+  // ---- load ---------------------------------------------------------------
+  let db = null;
+  try { db = await claude.use('db'); } catch (e) { db = null; }
+  let docs = [];
+  if (db) {
+    try {
+      const snap = await db.collection('snapshots').orderBy('report_date').limit(400).get();
+      docs = snap.docs.map((d) => d.data());
+    } catch (e) { docs = []; }
+  }
+  // Static copy (not running inside Claude): the build step bakes the snapshot in.
+  if (!docs.length && Array.isArray(window.__SNAPSHOTS__)) docs = window.__SNAPSHOTS__;
+  const latest = docs.length ? docs[docs.length - 1] : null;
+  const withPayload = docs.filter((d) => d.payload).pop();
+  const payload = withPayload ? withPayload.payload : null;
+
+  $('status-row').innerHTML = latest
+    ? `<span class="pill ${latest.escalated ? 'escalated' : ''}">${latest.escalated ? 'Escalated — brief below' : 'Quiet day — code-only run'}</span><span class="pill">Last run ${esc(latest.report_date || '—')}</span>`
+    : '<span class="pill">No runs recorded yet</span>';
+
+  if (payload) {
+    $('tiles').innerHTML = renderTiles(payload);
+    $('mandis').innerHTML = renderMandis(payload.mandis);
+    $('signals').innerHTML = renderSignals(payload.signals);
+    $('outturn').textContent = Number(payload.outturn).toFixed(2);
+    initChart(payload);
+  } else {
+    $('tiles').innerHTML = '';
+    $('plot').innerHTML = '<p class="muted" style="padding:24px">No price data yet — it arrives with the next pipeline snapshot.</p>';
+    $('ranges').style.display = 'none';
+    $('signals').innerHTML = renderSignals(latest ? latest.signal_table : null);
+    $('mandis').innerHTML = '<p class="muted">No mandi prices yet.</p>';
+  }
+  $('brief').innerHTML = renderBrief(docs.filter((d) => d.brief || d.brief_markdown).pop() || null);
+  $('last-updated').textContent = latest ? `Data last written ${latest.report_date}.` : '';
+})();
+</script>
+
+</body>
+</html>
