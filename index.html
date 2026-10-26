@@ -291,7 +291,9 @@
     const S = {};
     for (const k of ['mandi', 'board', 'london']) S[k] = (p.series[k] || []).map((r) => [dayNo(r[0]), r[1]]);
     if (!S.mandi.length) { $('plot').innerHTML = '<p class="muted" style="padding:24px">Price history appears here once the mandi channel has run.</p>'; $('ranges').style.display = 'none'; return; }
-    const LAST = S.mandi[S.mandi.length - 1][0], FIRST = S.mandi[0][0], SPAN = LAST - FIRST;
+    const ALLD = [].concat(S.mandi, S.board, S.london).map((q) => q[0]);
+    const LAST = Math.max(...ALLD), FIRST = Math.min(...ALLD), SPAN = LAST - FIRST;
+    const DAYS = Array.from(new Set(ALLD)).sort((a, b) => a - b);
     const RANGES = [['1W', 7], ['2W', 14], ['1M', 30], ['6M', 182], ['1Y', 365], ['5Y', 1825], ['All', null]];
     const enabled = (days) => days === null ? SPAN > 35 : SPAN >= days * 0.8;
     let range = (RANGES.filter((r) => r[1] && enabled(r[1]) && r[1] <= 30).pop() || ['All', null])[1];
@@ -337,21 +339,23 @@
 
       let hv = '';
       if (hover !== null) {
-        const pts = inWin(S.mandi);
-        const h = pts.reduce((a, q) => Math.abs(q[0] - hover) < Math.abs(a[0] - hover) ? q : a, pts[0]);
+        const dv = DAYS.filter((d) => d >= first);
+        const hd = dv.reduce((a, d) => Math.abs(d - hover) < Math.abs(a - hover) ? d : a, dv[0]);
+        const at = (arr) => arr.find((q) => q[0] === hd);
+        const h = at(S.mandi) || at(S.board) || at(S.london);
         const hx = X(h[0]), hy = Y(h[1]);
-        const get = (arr) => { const f = arr.find((q) => q[0] === h[0]); return f ? rs(f[1]) : 'no reading'; };
-        svg += `<line x1="${hx}" x2="${hx}" y1="0" y2="${PB}" stroke="var(--ink)" stroke-dasharray="3 3"/><line x1="${PL}" x2="${PR}" y1="${hy}" y2="${hy}" stroke="var(--ink)" stroke-dasharray="3 3"/><circle cx="${hx}" cy="${hy}" r="5" fill="var(--mandi)" stroke="#fff" stroke-width="2"/>`;
+        const get = (arr) => { const f = at(arr); return f ? rs(f[1]) : 'no reading'; };
+        svg += `<line x1="${hx}" x2="${hx}" y1="0" y2="${PB}" stroke="var(--ink)" stroke-dasharray="3 3"/><line x1="${PL}" x2="${PR}" y1="${hy}" y2="${hy}" stroke="var(--ink)" stroke-dasharray="3 3"/><circle cx="${hx}" cy="${hy}" r="5" fill="${at(S.mandi) ? 'var(--mandi)' : at(S.board) ? 'var(--board)' : 'var(--london)'}" stroke="#fff" stroke-width="2"/>`;
         hv = `<div class="ov tag num xlab" style="top:${xTop};left:${(hx / W * 100).toFixed(2)}%">${esc(short(h[0]))}</div>`
           + `<div class="ov tag num ylab" style="top:${(hy / H * 100).toFixed(2)}%">${num(h[1])}</div>`
           + `<div class="tip" style="left:${(((hx > 520 ? hx - 214 : hx + 14)) / W * 100).toFixed(2)}%"><div class="d">${esc(long(h[0]))}</div>`
-          + `<div class="r"><span class="muted">Wayanad mandi</span><span class="num">${rs(h[1])}</span></div>`
+          + `<div class="r"><span class="muted">Wayanad mandi</span><span class="num">${get(S.mandi)}</span></div>`
           + `<div class="r"><span class="muted">Board cherry</span><span class="num">${get(S.board)}</span></div>`
           + `<div class="r"><span class="muted">London parity</span><span class="num">${get(S.london)}</span></div></div>`;
       }
       svg += '</svg>';
 
-      const m0 = inWin(S.mandi)[0][1], chg = mLast - m0, pct = chg / m0 * 100, sg = chg >= 0 ? '+' : '−';
+      const m0 = (inWin(S.mandi)[0] || S.mandi[0])[1], chg = mLast - m0, pct = chg / m0 * 100, sg = chg >= 0 ? '+' : '−';
       const rl = (RANGES.find((r) => r[1] === range) || ['All'])[0];
       const head = `<div class="ov" style="left:3%;top:3%">Wayanad mandi (Rs per ${p.local_bag_kg} kg bag) <b class="num" style="color:var(--mandi);font-weight:600">${num(mLast)}</b> <span class="num" style="color:${chg >= 0 ? 'var(--up)' : 'var(--down)'};font-weight:500">${sg}${num(Math.abs(chg))} (${sg}${Math.abs(pct).toFixed(2)}%)</span> ${esc(rl)}</div>`;
       const ylabs = yt.map((v) => `<div class="ov ylab num" style="top:${(Y(v) / H * 100).toFixed(2)}%">${num(v)}</div>`).join('');
