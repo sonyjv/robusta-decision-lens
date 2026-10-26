@@ -120,7 +120,16 @@
 
   footer { font-size: 12px; color: var(--muted); max-width: 90ch; }
   footer div { margin-bottom: 6px; }
-  @media (max-width: 560px) { .plot .ov, .plot .tag { font-size: 10px; } .ranges button { font-size: 14px; padding: 12px 6px 9px; } }
+  @media (max-width: 560px) {
+    .plot .ov, .plot .tag { font-size: 10px; }
+    .plot .ylab { left: auto; right: 0; padding-left: 3px; background: rgba(246,243,236,.85); }
+    .ranges button { font-size: 14px; padding: 12px 6px 9px; }
+    .mandi-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+    .mandi-row .n { flex: none; }
+    .mandi-row .p { flex: none; }
+    .mandi-row .bar { grid-column: 1 / -1; order: 3; }
+    .scale { margin: 6px 0 0; }
+  }
 </style>
 </head>
 <body>
